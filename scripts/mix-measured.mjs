@@ -8,6 +8,7 @@
 // Output: output/cover-measured.mp4 + blind review.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
+import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
 
@@ -98,7 +99,10 @@ cover.muxPieceAudio(join(COVER, 'beat', 'visual-track.mp4'), mixWav, join(COVER,
 console.log(`✓ ${out} ${fx.probeDuration(out).toFixed(2)}s (staged: voice -16, nat -24 duck 2:1, music-v2 -26 duck 2:1, amb -28, master -14)`);
 
 // blind review the result
-const GEMINI = readFileSync('/Users/mitchellwilliams/Documents/career-ops/.env', 'utf8').match(/^GEMINI_API_KEY=(.+)$/m)?.[1]?.trim();
+const CAREER_ENV = join(homedir(), 'Documents', 'career-ops', '.env');
+const GEMINI = process.env.GEMINI_API_KEY
+  ?? (existsSync(CAREER_ENV) ? readFileSync(CAREER_ENV, 'utf8').match(/^GEMINI_API_KEY=(.+)$/m)?.[1]?.trim() : undefined);
+if (!GEMINI) throw new Error('set GEMINI_API_KEY (env, or in ~/Documents/career-ops/.env)');
 const proxy = join(DIR, 'review-proxy.mp4');
 ff(['-i', out, '-vf', 'scale=-2:480', '-crf', '30', '-preset', 'veryfast', '-c:a', 'aac', '-b:a', '128k', proxy]);
 const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent', {

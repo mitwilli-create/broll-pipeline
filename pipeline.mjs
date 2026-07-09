@@ -17,7 +17,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'fs';
 import { createHash } from 'crypto';
-import { join, dirname } from 'path';
+import { join, dirname, basename } from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -308,7 +308,9 @@ async function stageVisuals(beats) {
     const projected = todo.reduce((a, { b }) => a + genEstimate(fal, slug, b), 0);
     if (manifest.costUsd + projected > BUDGET)
       throw new Error(`budget guard: $${manifest.costUsd.toFixed(2)} spent + $${projected.toFixed(2)} projected > --budget ${BUDGET}`);
-    await Promise.all(todo.map(async ({ b, i, out, key }) => {
+    // allSettled: one beat's provider failure must not sink the batch; the
+    // failed beat falls back to a color card and the run keeps its receipts
+    const settled = await Promise.allSettled(todo.map(async ({ b, i, out, key }) => {
       const tmp = join(BROLL_DIR, `beat-${i}.new.mp4`);
       const r = await generateBeatClip(fal, slug, b, i, tmp);
       keepTake(i); // only retire the old take once the new one exists
@@ -317,6 +319,10 @@ async function stageVisuals(beats) {
       b.clipPath = out;
       record('visuals', { beat: i, mode: 'gen', medium: r.medium, requestId: r.requestId, requestedSeconds: r.requestedSeconds, costSource: 'estimate' }, r.estCostUsd);
     }));
+    settled.forEach((s, k) => {
+      if (s.status === 'rejected')
+        record('visuals', { beat: todo[k].i, mode: 'gen', error: String(s.reason?.message ?? s.reason).slice(0, 140), note: 'generation failed: color card fallback' }, 0);
+    });
   }
 
   // the council's review board judges every generated clip; bad takes reroll
@@ -325,6 +331,8 @@ async function stageVisuals(beats) {
 // Craft Law rule 10: every generated effect and the ambience bed pass the
 // harshness gate; failures regenerate softer once (script and cover modes
 // share this — highBandGapDb gap < 8dB means screechy highs).
+// Returns { gap, fresh }: callers must record cost only on fresh (billable)
+// generations, so the manifest receipt never double-counts cache hits.
 async function guardedSfx(text, durationSeconds, outFile, label) {
   // content-hash sidecar: a changed prompt or length must never serve a stale
   // artifact (the 72s-old-score-under-a-53s-cut lesson, 2026-07-08)
@@ -333,9 +341,11 @@ async function guardedSfx(text, durationSeconds, outFile, label) {
   let side = null;
   try { side = JSON.parse(readFileSync(sideFile, 'utf8')); } catch {}
   if (side?.key !== key && existsSync(outFile)) { const { unlinkSync } = await import('fs'); unlinkSync(outFile); }
+  let fresh = false;
   if (!existsSync(outFile)) {
     _wf(outFile, await el.soundEffect({ text, durationSeconds }));
     _wf(sideFile, JSON.stringify({ key, text: text.slice(0, 120), durationSeconds, createdAt: new Date().toISOString() }));
+    fresh = true;
   }
   let gap = fx.highBandGapDb(outFile);
   if (gap < 8) {
@@ -353,7 +363,7 @@ async function guardedSfx(text, durationSeconds, outFile, label) {
     gap = fx.highBandGapDb(outFile);
   }
   record('audio-qa', { file: label, gapDb: +gap.toFixed(1), verdict: gap < 8 ? 'still bright after lowpass: mixing anyway' : 'clean' }, 0);
-  return gap;
+  return { gap, fresh };
 }
 
 // The council's script-mode brief (cached by stageVisuals, which runs before
@@ -377,13 +387,15 @@ async function stageScore(beats) {
   const mKey = hash(`${prompt}:${totalS}`);
   let mSide = null;
   try { mSide = JSON.parse(readFileSync(join(CACHE, 'music.json'), 'utf8')); } catch {}
-  if (!existsSync(out) || mSide?.key !== mKey) {
+  const musicFresh = !existsSync(out) || mSide?.key !== mKey;
+  if (musicFresh) {
     const buf = await el.music({ prompt, lengthMs: totalS * 1000 });
     _wf(out, buf);
     _wf(join(CACHE, 'music.json'), JSON.stringify({ key: mKey, prompt: prompt.slice(0, 140), seconds: totalS, createdAt: new Date().toISOString() }));
   }
   manifest.musicPath = out;
-  record('score', { seconds: totalS, model: 'music_v2', out: '.cache/music.mp3', briefed: !!briefMusicPrompt }, (totalS / 60) * 0.15);
+  const scoreCost = (totalS / 60) * 0.15;
+  record('score', { seconds: totalS, model: 'music_v2', out: '.cache/music.mp3', briefed: !!briefMusicPrompt, ...(musicFresh ? {} : { cached: true, originalCostUsd: scoreCost }) }, musicFresh ? scoreCost : 0);
 }
 async function stageSfx(beats) {
   console.log(`▶ [5] sfx${MOCK ? ' (MOCK: skipped)' : ''}`);
@@ -396,9 +408,10 @@ async function stageSfx(beats) {
     if (b.sfxPrompt) {
       const dur = Math.min(4, Math.max(1, (b.seconds || 5) * 0.6));
       const out = join(SFX_DIR, `beat-${i}.mp3`);
-      await guardedSfx(b.sfxPrompt, dur, out, `sfx beat ${i}`);
+      const { fresh } = await guardedSfx(b.sfxPrompt, dur, out, `sfx beat ${i}`);
       manifest.sfx.push({ path: out, atSec: offset });
-      record('sfx', { beat: i, prompt: b.sfxPrompt.slice(0, 60), duration_s: dur }, (dur / 60) * 0.12);
+      const sfxCost = (dur / 60) * 0.12;
+      record('sfx', { beat: i, prompt: b.sfxPrompt.slice(0, 60), duration_s: dur, ...(fresh ? {} : { cached: true, originalCostUsd: sfxCost }) }, fresh ? sfxCost : 0);
       made++;
     }
     offset += beatDur(b); // measured, so accents stay on their beats in the real edit
@@ -427,8 +440,9 @@ async function stageAssemble(beats) {
   if (briefAmbiencePrompt) {
     ambientPath = join(CACHE, 'ambience.mp3');
     const ambDur = Math.min(28, Math.ceil(durations.reduce((a, d) => a + d, 0)) + 2);
-    await guardedSfx(briefAmbiencePrompt, ambDur, ambientPath, 'ambience bed');
-    record('ambience', { prompt: briefAmbiencePrompt.slice(0, 70), duration_s: ambDur }, (ambDur / 60) * 0.12);
+    const { fresh } = await guardedSfx(briefAmbiencePrompt, ambDur, ambientPath, 'ambience bed');
+    const ambCost = (ambDur / 60) * 0.12;
+    record('ambience', { prompt: briefAmbiencePrompt.slice(0, 70), duration_s: ambDur, ...(fresh ? {} : { cached: true, originalCostUsd: ambCost }) }, fresh ? ambCost : 0);
   }
   if (!MOCK && (manifest.musicPath || ambientPath || sfxEntries.length)) {
     const mixed = join(BEAT_DIR, 'short-mixed.mp4');
@@ -569,7 +583,9 @@ async function runCover(piecePath) {
   const pieceDur = fx.probeDuration(pieceAudio);
   if (!pieceDur) throw new Error('--cover: could not read audio from the piece');
   const pieceHash = ch('sha256').update(readFileSync(pieceAudio)).digest('hex').slice(0, 12);
-  record('cover', { piece: piecePath, duration_s: +pieceDur.toFixed(2), hash: pieceHash });
+  // committed receipts must not leak machine-specific absolute paths
+  const pieceLabel = src.startsWith(ROOT + '/') ? src.slice(ROOT.length + 1) : basename(src);
+  record('cover', { piece: pieceLabel, duration_s: +pieceDur.toFixed(2), hash: pieceHash });
 
   console.log('▶ [c2] transcribe (ElevenLabs Speech-to-Text)');
   const tPath = join(COVER_DIR, `transcript-${pieceHash}.json`);
@@ -578,7 +594,7 @@ async function runCover(piecePath) {
     transcript = JSON.parse(readFileSync(tPath, 'utf8'));
     record('stt', { cached: true, words: transcript.words?.length ?? 0 }, 0);
   } else {
-    if (DRY) { record('stt', { dry: true, note: 'skipped' }); return; }
+    if (DRY || MOCK) { record('stt', { note: 'skipped (dry/mock): no cached transcript, cover mode needs a live STT pass' }); return; }
     transcript = await el.stt({ filePath: pieceAudio });
     writeFileSync(tPath, JSON.stringify(transcript, null, 2));
     record('stt', { words: transcript.words?.length ?? 0, lang: transcript.language_code }, (pieceDur / 3600) * 0.40);
@@ -625,7 +641,7 @@ async function runCover(piecePath) {
       shotsOut = JSON.parse(readFileSync(sPath, 'utf8'));
       record('shots', { cached: true, source: shotsOut.source, beats: segments.length }, 0);
     } else {
-      shotsOut = await shots.shotList({ segments });
+      shotsOut = await shots.shotList({ segments, forceTemplate: MOCK || DRY });
       writeFileSync(sPath, JSON.stringify(shotsOut, null, 2));
       record('shots', { source: shotsOut.source, beats: segments.length, costSource: 'estimate' }, shotsOut.estCostUsd);
     }
@@ -658,9 +674,10 @@ async function runCover(piecePath) {
       if (!b.sfxPrompt) continue;
       const p = join(SFX_DIR, `beat-${i}.mp3`);
       const dur = Math.min(4, Math.max(1, b.seconds * 0.5));
-      await guardedSfx(b.sfxPrompt, dur, p, `sfx beat ${i}`);
+      const { fresh } = await guardedSfx(b.sfxPrompt, dur, p, `sfx beat ${i}`);
       sfxEntries.push({ path: p, atSec: b.start });
-      record('sfx', { beat: i, prompt: b.sfxPrompt.slice(0, 60), duration_s: dur }, (dur / 60) * 0.12);
+      const sfxCost = (dur / 60) * 0.12;
+      record('sfx', { beat: i, prompt: b.sfxPrompt.slice(0, 60), duration_s: dur, ...(fresh ? {} : { cached: true, originalCostUsd: sfxCost }) }, fresh ? sfxCost : 0);
     }
   }
 
@@ -669,21 +686,26 @@ async function runCover(piecePath) {
   if (!MOCK && briefAmbiencePrompt) {
     ambientPath = join(COVER_DIR, 'ambience.mp3');
     const ambDur = Math.min(28, Math.ceil(pieceDur + 2));
-    await guardedSfx(briefAmbiencePrompt, ambDur, ambientPath, 'ambience bed');
-    record('ambience', { prompt: briefAmbiencePrompt.slice(0, 70), duration_s: ambDur }, (ambDur / 60) * 0.12);
+    const { fresh } = await guardedSfx(briefAmbiencePrompt, ambDur, ambientPath, 'ambience bed');
+    const ambCost = (ambDur / 60) * 0.12;
+    record('ambience', { prompt: briefAmbiencePrompt.slice(0, 70), duration_s: ambDur, ...(fresh ? {} : { cached: true, originalCostUsd: ambCost }) }, fresh ? ambCost : 0);
   }
 
   let musicPath = null;
   if (WANT_MUSIC && !MOCK) {
     musicPath = join(COVER_DIR, 'music.mp3');
-    if (!existsSync(musicPath)) {
-      const buf = await el.music({
-        prompt: arg('--music-prompt', briefMusicPrompt ?? 'cinematic underscore with a clear pulse and forward momentum, instrumental bed under narration'),
-        lengthMs: Math.ceil(pieceDur + 2) * 1000,
-      });
-      _wf(musicPath, buf);
+    const cPrompt = arg('--music-prompt', briefMusicPrompt ?? 'cinematic underscore with a clear pulse and forward momentum, instrumental bed under narration');
+    const cSeconds = Math.ceil(pieceDur + 2);
+    const cKey = hash(`${cPrompt}:${cSeconds}`);
+    let cSide = null;
+    try { cSide = JSON.parse(readFileSync(join(COVER_DIR, 'music.json'), 'utf8')); } catch {}
+    const coverMusicFresh = !existsSync(musicPath) || cSide?.key !== cKey;
+    if (coverMusicFresh) {
+      _wf(musicPath, await el.music({ prompt: cPrompt, lengthMs: cSeconds * 1000 }));
+      _wf(join(COVER_DIR, 'music.json'), JSON.stringify({ key: cKey, prompt: cPrompt.slice(0, 140), seconds: cSeconds, createdAt: new Date().toISOString() }));
     }
-    record('score', { seconds: Math.ceil(pieceDur + 2), model: 'music_v2', out: '.cache/cover/music.mp3', briefed: !!briefMusicPrompt }, ((pieceDur + 2) / 60) * 0.15);
+    const cCost = (cSeconds / 60) * 0.15;
+    record('score', { seconds: cSeconds, model: 'music_v2', out: '.cache/cover/music.mp3', briefed: !!briefMusicPrompt, ...(coverMusicFresh ? {} : { cached: true, originalCostUsd: cCost }) }, coverMusicFresh ? cCost : 0);
   }
   if (musicPath || ambientPath || sfxEntries.length) {
     const mixed = join(COVER_BEAT_DIR, 'cover-mixed.mp4');

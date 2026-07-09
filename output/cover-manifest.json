@@ -5,7 +5,7 @@
   "calls": [
     {
       "stage": "cover",
-      "piece": "/private/tmp/claude-501/-Users-mitchellwilliams-Documents-broll-pipeline/540c310f-6fe8-46cc-bb8e-f62ad4a43603/scratchpad/sample-piece-el.mp3",
+      "piece": "sample-piece-el.mp3",
       "duration_s": 28.79,
       "hash": "11aaf39ecfed",
       "costUsd": 0
@@ -296,7 +296,7 @@
       "beat": 10,
       "verdict": "reroll",
       "take": 0,
-      "reasons": "The action and literalism are excellent — a fishmonger in an orange Grundens bib genuinely hurling a whole sil",
+      "reasons": "The action and literalism are excellent \u2014 a fishmonger in an orange Grundens bib genuinely hurling a whole sil",
       "costUsd": 0.0708
     },
     {
@@ -372,7 +372,7 @@
       "beat": 13,
       "verdict": "reroll",
       "take": 1,
-      "reasons": "Hard fail on text-bearing prop: the orange bib carries a clearly rendered 'Grumgens' patch — a garbled version",
+      "reasons": "Hard fail on text-bearing prop: the orange bib carries a clearly rendered 'Grumgens' patch \u2014 a garbled version",
       "costUsd": 0.0635
     },
     {

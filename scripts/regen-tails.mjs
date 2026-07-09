@@ -1,12 +1,14 @@
-// Regenerate nat sound for beats 10 (shout must finish) and 13 (catch slap +
-// crowd burst) with freeze-frame-extended clips: MMAudio scores exactly the
+// Regenerate nat sound for beat 13 (catch slap + crowd burst) with a
+// freeze-frame-extended clip (beat 10's shout was fixed via prompt regen in
+// the sound loop instead): MMAudio scores exactly the
 // video it sees, so we extend the last frame ~1.2s to give the sound room to
 // complete and decay. Writes beat-N-va2.mp4; the mix script prefers va2.
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
 
-const ROOT = '/Users/mitchellwilliams/Documents/broll-pipeline';
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const COVER = join(ROOT, '.cache', 'cover');
 const NAT = join(COVER, 'nat');
 const { config } = await import(join(ROOT, 'node_modules', 'dotenv', 'lib', 'main.js')).then(m => m.default ?? m);

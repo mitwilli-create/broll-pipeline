@@ -1,15 +1,20 @@
 // Blind sound-mix review: Gemini 3.1 Pro (it can HEAR) reviews the cut with
 // zero context about versions, changes, or that AI made it. The review board's
 // missing sense, prototyped. Usage: node blind-review.mjs <video>
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { execFileSync } from 'child_process';
-import { join, basename } from 'path';
+import { join, basename, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { homedir } from 'os';
 
-const VIDEO = process.argv[2] ?? '/Users/mitchellwilliams/Documents/broll-pipeline/output/cover-v2a3.mp4';
-const SP = '/Users/mitchellwilliams/Documents/broll-pipeline/output';
-const env = readFileSync('/Users/mitchellwilliams/Documents/career-ops/.env', 'utf8');
-const KEY = env.match(/^GEMINI_API_KEY=(.+)$/m)?.[1]?.trim();
-if (!KEY) throw new Error('GEMINI_API_KEY not found in career-ops/.env');
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const VIDEO = process.argv[2] ?? join(ROOT, 'output', 'cover.mp4');
+const SP = join(ROOT, 'output');
+const CAREER_ENV = join(homedir(), 'Documents', 'career-ops', '.env');
+const GEMINI = process.env.GEMINI_API_KEY
+  ?? (existsSync(CAREER_ENV) ? readFileSync(CAREER_ENV, 'utf8').match(/^GEMINI_API_KEY=(.+)$/m)?.[1]?.trim() : undefined);
+const KEY = GEMINI;
+if (!KEY) throw new Error('set GEMINI_API_KEY (env, or GEMINI_API_KEY=... in ~/Documents/career-ops/.env)');
 
 // small proxy, original audio untouched (the review is about the sound)
 const proxy = join(SP, 'review-proxy.mp4');

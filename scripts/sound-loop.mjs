@@ -13,6 +13,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { homedir } from 'os';
 import { execFileSync } from 'child_process';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -25,7 +26,9 @@ const fx = await import(join(ROOT, 'lib', 'ffmpeg.mjs'));
 const cover = await import(join(ROOT, 'lib', 'cover.mjs'));
 const ff = (args) => execFileSync('ffmpeg', ['-y', '-v', 'error', ...args], { encoding: 'utf8' });
 const AUPH = process.env.AUPHONIC_API_KEY;
-const GEMINI = readFileSync('/Users/mitchellwilliams/Documents/career-ops/.env', 'utf8').match(/^GEMINI_API_KEY=(.+)$/m)?.[1]?.trim();
+const CAREER_ENV = join(homedir(), 'Documents', 'career-ops', '.env');
+const GEMINI = process.env.GEMINI_API_KEY
+  ?? (existsSync(CAREER_ENV) ? readFileSync(CAREER_ENV, 'utf8').match(/^GEMINI_API_KEY=(.+)$/m)?.[1]?.trim() : undefined);
 if (!AUPH || !GEMINI) throw new Error('need AUPHONIC_API_KEY (.env) and GEMINI_API_KEY (career-ops/.env)');
 let spend = 0;
 

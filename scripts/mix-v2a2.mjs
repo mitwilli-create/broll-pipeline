@@ -5,10 +5,11 @@
 //     shot's head (no chopped shouts, natural meshing)
 //  4. score audible: music 0.34 ducked under voice, loudnorm -14 LUFS master
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
 
-const ROOT = '/Users/mitchellwilliams/Documents/broll-pipeline';
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const COVER = join(ROOT, '.cache', 'cover');
 const BEAT = join(COVER, 'beat');
 const NAT = join(COVER, 'nat');

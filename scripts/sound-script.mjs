@@ -18,6 +18,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { homedir } from 'os';
 import { execFileSync } from 'child_process';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -43,8 +44,10 @@ const { config } = await import('dotenv'); config({ path: join(ROOT, '.env') });
 const fx = await import(join(ROOT, 'lib', 'ffmpeg.mjs'));
 const cover = await import(join(ROOT, 'lib', 'cover.mjs'));
 const ff = (args) => execFileSync('ffmpeg', ['-y', '-v', 'error', ...args], { encoding: 'utf8' });
-const GEMINI = readFileSync('/Users/mitchellwilliams/Documents/career-ops/.env', 'utf8').match(/^GEMINI_API_KEY=(.+)$/m)?.[1]?.trim();
-if (!process.env.FAL_KEY || !GEMINI) throw new Error('need FAL_KEY (.env) and GEMINI_API_KEY (career-ops/.env)');
+const CAREER_ENV = join(homedir(), 'Documents', 'career-ops', '.env');
+const GEMINI = process.env.GEMINI_API_KEY
+  ?? (existsSync(CAREER_ENV) ? readFileSync(CAREER_ENV, 'utf8').match(/^GEMINI_API_KEY=(.+)$/m)?.[1]?.trim() : undefined);
+if (!process.env.FAL_KEY || !GEMINI) throw new Error('need FAL_KEY (.env) and GEMINI_API_KEY (env or ~/Documents/career-ops/.env)');
 let spend = 0;
 
 // Per-shot nat spec (Craft Law: acoustic space + physical material, every shot).
