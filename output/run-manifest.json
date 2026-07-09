@@ -479,22 +479,22 @@
   ],
   "costUsd": 0.7786000000000001,
   "mode": "LIVE",
-  "musicPath": "/Users/mitchellwilliams/Documents/broll-pipeline/.cache/music.mp3",
+  "musicPath": ".cache/music.mp3",
   "sfx": [
     {
-      "path": "/Users/mitchellwilliams/Documents/broll-pipeline/.cache/sfx/beat-0.mp3",
+      "path": ".cache/sfx/beat-0.mp3",
       "atSec": 0
     },
     {
-      "path": "/Users/mitchellwilliams/Documents/broll-pipeline/.cache/sfx/beat-9.mp3",
+      "path": ".cache/sfx/beat-9.mp3",
       "atSec": 29.075873
     },
     {
-      "path": "/Users/mitchellwilliams/Documents/broll-pipeline/.cache/sfx/beat-11.mp3",
+      "path": ".cache/sfx/beat-11.mp3",
       "atSec": 35.575873
     },
     {
-      "path": "/Users/mitchellwilliams/Documents/broll-pipeline/.cache/sfx/beat-15.mp3",
+      "path": ".cache/sfx/beat-15.mp3",
       "atSec": 49.244626000000004
     }
   ]

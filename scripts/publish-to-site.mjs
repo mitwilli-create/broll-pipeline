@@ -4,7 +4,7 @@
 // Copies output/short.mp4 + captions to the site's assets, emits a WebVTT
 // track (browsers ignore SRT in <track>), and extracts a fresh poster frame.
 
-import { copyFileSync, readFileSync, writeFileSync, statSync, existsSync } from 'fs';
+import { copyFileSync, readFileSync, writeFileSync, statSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -13,6 +13,7 @@ const args = process.argv.slice(2);
 const arg = (f, d) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : d; };
 const SITE = arg('--site', join(ROOT, '..', 'storytellermitch-site'));
 const ASSETS = join(SITE, 'assets');
+mkdirSync(ASSETS, { recursive: true });
 
 const srtToVtt = (srt) =>
   'WEBVTT\n\n' + srt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');

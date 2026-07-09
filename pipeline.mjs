@@ -54,6 +54,7 @@ mkdirSync(OUT, { recursive: true });
 
 const manifest = { started: null /* stamp after run */, script: SCRIPT, dry: DRY, calls: [], costUsd: 0 };
 const hash = (s) => createHash('sha256').update(s).digest('hex').slice(0, 12);
+const rel = (p) => (p && p.startsWith(ROOT + '/') ? p.slice(ROOT.length + 1) : p);
 function record(stage, meta, costUsd = 0) {
   manifest.calls.push({ stage, ...meta, costUsd });
   manifest.costUsd += costUsd;
@@ -81,6 +82,8 @@ function parseScript(path) {
     const visualMode = mode || (visual ? 'gen' : 'card');
     if (visualMode === 'mograph' && !mographTemplate)
       throw new Error(`beat ${beats.length}: VISUAL-MODE is mograph but no MOGRAPH: template named`);
+    if (visualMode === 'gen' && !visual)
+      throw new Error(`beat ${beats.length}: VISUAL-MODE is gen but no VISUAL: prompt given`);
     beats.push({ vo, visualPrompt: visual, sfxPrompt: sfx, seconds, visualMode, mographTemplate, caption });
   }
   return beats;
@@ -351,7 +354,9 @@ async function guardedSfx(text, durationSeconds, outFile, label) {
   if (gap < 8) {
     record('audio-qa', { file: label, gapDb: +gap.toFixed(1), verdict: 'harsh: regenerating softer' }, 0);
     _wf(outFile, await el.soundEffect({
-      text: `${text}. Soft, muffled, rounded, low-frequency, gentle; absolutely no screeching, scraping, hissing, or harsh high frequencies.`,
+      // truncate the base first: soundEffect slices at 450 chars and the
+      // softening directive must survive on long prompts
+      text: `${text.slice(0, 320)}. Soft, muffled, rounded, low-frequency, gentle; absolutely no screeching, scraping, hissing, or harsh high frequencies.`,
       durationSeconds,
     }));
     gap = fx.highBandGapDb(outFile);
@@ -393,7 +398,7 @@ async function stageScore(beats) {
     _wf(out, buf);
     _wf(join(CACHE, 'music.json'), JSON.stringify({ key: mKey, prompt: prompt.slice(0, 140), seconds: totalS, createdAt: new Date().toISOString() }));
   }
-  manifest.musicPath = out;
+  manifest.musicPath = rel(out);
   const scoreCost = (totalS / 60) * 0.15;
   record('score', { seconds: totalS, model: 'music_v2', out: '.cache/music.mp3', briefed: !!briefMusicPrompt, ...(musicFresh ? {} : { cached: true, originalCostUsd: scoreCost }) }, musicFresh ? scoreCost : 0);
 }
@@ -409,7 +414,7 @@ async function stageSfx(beats) {
       const dur = Math.min(4, Math.max(1, (b.seconds || 5) * 0.6));
       const out = join(SFX_DIR, `beat-${i}.mp3`);
       const { fresh } = await guardedSfx(b.sfxPrompt, dur, out, `sfx beat ${i}`);
-      manifest.sfx.push({ path: out, atSec: offset });
+      manifest.sfx.push({ path: rel(out), atSec: offset });
       const sfxCost = (dur / 60) * 0.12;
       record('sfx', { beat: i, prompt: b.sfxPrompt.slice(0, 60), duration_s: dur, ...(fresh ? {} : { cached: true, originalCostUsd: sfxCost }) }, fresh ? sfxCost : 0);
       made++;
@@ -750,7 +755,10 @@ if (REFLECT_TEXT) {
 }
 if (REFLECT_TEXT) { /* reflect-only run: rules proposed above, nothing generates */ }
 else if (COVER) { await runCover(COVER); }
-else if (ONLY) { await stages[ONLY]?.(); }
+else if (ONLY) {
+  if (!stages[ONLY]) throw new Error(`--stage ${ONLY}: unknown stage (expected one of ${Object.keys(stages).join(', ')})`);
+  await stages[ONLY]();
+}
 else { for (const s of ['voiceover', 'visuals', 'score', 'sfx', 'assemble']) await stages[s](); if (DUB_LANG) await stageDub(DUB_LANG); }
 
 // run-manifest.json is the committed receipt for the last FULL production
